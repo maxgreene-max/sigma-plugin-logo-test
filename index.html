@@ -8,11 +8,20 @@
     margin: 0;
     padding: 0;
     height: 100%;
+    font-family: -apple-system, sans-serif;
+    background: #fff;
+  }
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  #imgWrap {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #fff;
-    font-family: -apple-system, sans-serif;
+    min-height: 0;
   }
   img {
     max-width: 100%;
@@ -24,21 +33,42 @@
     text-align: center;
     padding: 8px;
   }
+  #debug {
+    font-family: monospace;
+    font-size: 10px;
+    white-space: pre-wrap;
+    background: #f5f5f5;
+    border-top: 1px solid #ddd;
+    padding: 6px;
+    max-height: 40%;
+    overflow: auto;
+    color: #333;
+  }
 </style>
 </head>
 <body>
-  <div id="status">loading plugin SDK…</div>
-  <img id="logo" style="display:none" />
+  <div id="wrap">
+    <div id="imgWrap">
+      <div id="status">loading plugin SDK…</div>
+      <img id="logo" style="display:none" />
+    </div>
+    <div id="debug">debug: waiting…</div>
+  </div>
 
   <script type="module">
-    // Same public URL used to reproduce SIG-90372 (PermaPlate's dynamic image URL bug).
-    // Swap this for KKR's Pitchbook logo URL, or wire up the editor-panel config below
-    // once you want to test the real workbook-driven (dynamic/filtered) case.
     const HARDCODED_TEST_URL =
       'https://4uumoyezeg.execute-api.us-west-2.amazonaws.com/default/getMaps?imageKey=MIDWEST.JPG';
 
     const statusEl = document.getElementById('status');
     const imgEl = document.getElementById('logo');
+    const debugEl = document.getElementById('debug');
+
+    let fireCount = 0;
+    function log(obj) {
+      fireCount++;
+      const ts = new Date().toISOString().split('T')[1].replace('Z', '');
+      debugEl.textContent = '[' + ts + '] fire #' + fireCount + '\n' + JSON.stringify(obj, null, 2);
+    }
 
     function setStatus(text) {
       statusEl.textContent = text;
@@ -52,12 +82,8 @@
       statusEl.style.display = 'none';
     }
 
-    // Render immediately with the hardcoded URL — no workbook data source required.
     showImage(HARDCODED_TEST_URL);
 
-    // Optional upgrade path: if you later add a Table/Input Table with the real
-    // dynamic URL column, this wires the plugin's editor panel to read from it and
-    // will override the hardcoded image once configured.
     try {
       const { client } = await import('https://esm.sh/@sigmacomputing/plugin');
 
@@ -66,17 +92,37 @@
         { name: 'image url column', type: 'column', source: 'data source' },
       ]);
 
+      let subscribed = false;
+
       client.config.subscribe(() => {
         const dataSourceConfig = client.config.getKey('data source');
         const elementId = dataSourceConfig && dataSourceConfig.value;
         if (!elementId) {
-          return; // not configured yet — keep showing the hardcoded test image
+          log({ note: 'no data source configured yet' });
+          return;
         }
+        if (subscribed) {
+          // avoid stacking duplicate subscriptions on repeated config fires
+          return;
+        }
+        subscribed = true;
 
         client.elements.subscribeToElementData(elementId, (data) => {
           const colConfig = client.config.getKey('image url column');
           const colId = colConfig && colConfig.value;
-          if (!colId) return;
+
+          log({
+            elementId,
+            colId,
+            rowCountForColumn: colId && data[colId] ? data[colId].length : null,
+            allValuesForColumn: colId ? data[colId] : null,
+            allColumnKeysInData: Object.keys(data),
+          });
+
+          if (!colId) {
+            setStatus('select an "image url column" in the editor panel');
+            return;
+          }
           const values = data[colId];
           const url = values && values[0];
           if (url) {
@@ -87,7 +133,8 @@
         });
       });
     } catch (err) {
-      console.error('Plugin SDK config failed (hardcoded image still shown):', err);
+      log({ error: err && err.message ? err.message : String(err) });
+      console.error(err);
     }
   </script>
 </body>
