@@ -31,6 +31,12 @@
   <img id="logo" style="display:none" />
 
   <script type="module">
+    // Same public URL used to reproduce SIG-90372 (PermaPlate's dynamic image URL bug).
+    // Swap this for KKR's Pitchbook logo URL, or wire up the editor-panel config below
+    // once you want to test the real workbook-driven (dynamic/filtered) case.
+    const HARDCODED_TEST_URL =
+      'https://4uumoyezeg.execute-api.us-west-2.amazonaws.com/default/getMaps?imageKey=MIDWEST.JPG';
+
     const statusEl = document.getElementById('status');
     const imgEl = document.getElementById('logo');
 
@@ -46,6 +52,12 @@
       statusEl.style.display = 'none';
     }
 
+    // Render immediately with the hardcoded URL — no workbook data source required.
+    showImage(HARDCODED_TEST_URL);
+
+    // Optional upgrade path: if you later add a Table/Input Table with the real
+    // dynamic URL column, this wires the plugin's editor panel to read from it and
+    // will override the hardcoded image once configured.
     try {
       const { client } = await import('https://esm.sh/@sigmacomputing/plugin');
 
@@ -54,23 +66,17 @@
         { name: 'image url column', type: 'column', source: 'data source' },
       ]);
 
-      setStatus('waiting for editor panel config…');
-
       client.config.subscribe(() => {
         const dataSourceConfig = client.config.getKey('data source');
         const elementId = dataSourceConfig && dataSourceConfig.value;
         if (!elementId) {
-          setStatus('select a "data source" element in the editor panel');
-          return;
+          return; // not configured yet — keep showing the hardcoded test image
         }
 
         client.elements.subscribeToElementData(elementId, (data) => {
           const colConfig = client.config.getKey('image url column');
           const colId = colConfig && colConfig.value;
-          if (!colId) {
-            setStatus('select an "image url column" in the editor panel');
-            return;
-          }
+          if (!colId) return;
           const values = data[colId];
           const url = values && values[0];
           if (url) {
@@ -81,8 +87,7 @@
         });
       });
     } catch (err) {
-      setStatus('plugin error: ' + (err && err.message ? err.message : String(err)));
-      console.error(err);
+      console.error('Plugin SDK config failed (hardcoded image still shown):', err);
     }
   </script>
 </body>
