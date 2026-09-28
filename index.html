@@ -93,23 +93,28 @@
       ]);
 
       let subscribed = false;
+      let subscribedElementId = null;
+      let currentColId = null;
 
-      client.config.subscribe(() => {
-        const dataSourceConfig = client.config.getKey('data source');
-        const elementId = dataSourceConfig && dataSourceConfig.value;
+      // NOTE: config values come through as a flat map (config['field name'] -> raw value),
+      // not as {value: ...} descriptor objects. client.config.getKey(...).value was the bug.
+      client.config.subscribe((config) => {
+        const elementId = config['data source'];
+        currentColId = config['image url column'];
+
         if (!elementId) {
-          log({ note: 'no data source configured yet' });
+          log({ note: 'no data source configured yet', rawConfig: config });
           return;
         }
-        if (subscribed) {
-          // avoid stacking duplicate subscriptions on repeated config fires
-          return;
+
+        if (subscribed && subscribedElementId === elementId) {
+          return; // already subscribed to this element
         }
         subscribed = true;
+        subscribedElementId = elementId;
 
         client.elements.subscribeToElementData(elementId, (data) => {
-          const colConfig = client.config.getKey('image url column');
-          const colId = colConfig && colConfig.value;
+          const colId = currentColId;
 
           log({
             elementId,
